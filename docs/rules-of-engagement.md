@@ -1,28 +1,34 @@
 # Rules of Engagement – Paper Trail Books
 
-## Authorization
-Testing is permitted only on the student's own local application and personally launched PortSwigger Academy lab.
+## 1. Authorization
+Testing is authorized only on the student's own locally developed Paper Trail Books application and the personally launched PortSwigger Web Security Academy lab.
 
-## Permitted Activities
-- Manual testing of the selected lab.
-- Testing the local Paper Trail Books application.
-- Observing and documenting security findings.
+## 2. Selected Target
+- Platform: PortSwigger Web Security Academy
+- Lab: SQL injection vulnerability in WHERE clause allowing retrieval of hidden data
+- Lab URL: https://portswigger.net/web-security/sql-injection/lab-retrieve-hidden-data
+
+## 3. Permitted Activities
+- Manual testing of the selected lab instance.
+- Testing the locally developed bookstore application.
 - Using browser developer tools and Burp Suite Community Edition.
+- Recording findings and documenting security observations.
 
-## Prohibited Activities
+## 4. Prohibited Activities
 - Attacking real websites without written permission.
 - Testing other users' lab instances.
 - Denial-of-service or destructive testing.
 - Accessing or modifying unrelated systems or data.
 
-## Testing Conditions
-- Use only the assigned lab instance.
-- Keep testing within the lab's intended boundaries.
-- Stop testing if unexpected access to unrelated data or systems occurs.
+## 5. Testing Conditions
+- Use only the selected lab instance.
+- Keep testing within the authorized environment.
+- Stop testing if activity reaches unrelated systems or data.
 
-## Evidence Handling
-- Record findings and screenshots from authorized testing only.
-- Do not collect personal or sensitive information.
+## 6. Evidence Handling
+- Record screenshots and findings from authorized testing only.
+- Avoid collecting personal or sensitive information.
+- Store project evidence in the repository.
 
-## Reporting
-Document the test performed, observed result, potential impact, and recommended mitigation.
+## 7. Reporting
+Document the testing objective, method, observed result, potential impact, and recommended mitigation.
