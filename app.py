@@ -1,148 +1,301 @@
+
 import json
 import html
-import mimetypes
+import re
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
-from pathlib import Path
+from datetime import datetime
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).resolve().parent
 DATA_FILE = BASE_DIR / "data" / "books.json"
-STATIC_DIR = BASE_DIR / "static"
+HOST = "127.0.0.1"
+PORT = 8000
 
 
 def load_books():
-    with open(DATA_FILE, encoding="utf-8") as file:
+    if not DATA_FILE.exists():
+        raise FileNotFoundError("Book inventory file is missing.")
+
+    with open(DATA_FILE, "r", encoding="utf-8") as file:
         books = json.load(file)
 
     if not isinstance(books, list):
-        raise ValueError("Invalid inventory format")
+        raise ValueError("Inventory must contain a list of books.")
+
+    required = ["id", "title", "author", "category", "price", "stock"]
 
     for book in books:
-        if not all(key in book for key in (
-            "id", "title", "author", "category", "price", "stock"
-        )):
-            raise ValueError("Invalid book record")
+        if not isinstance(book, dict):
+            raise ValueError("Invalid book record found.")
 
-        if not isinstance(book["price"], (int, float)) or book["price"] < 0:
-            raise ValueError("Invalid book price")
+        for field in required:
+            if field not in book:
+                raise ValueError(f"Book record is missing: {field}")
+
+        if not isinstance(book["price"], (int, float)) or book["price"] <= 0:
+            raise ValueError("Book price must be greater than zero.")
 
         if not isinstance(book["stock"], int) or book["stock"] < 0:
-            raise ValueError("Invalid stock value")
+            raise ValueError("Book stock cannot be negative.")
 
     return books
 
 
+def save_books(books):
+    with open(DATA_FILE, "w", encoding="utf-8") as file:
+        json.dump(books, file, indent=4, ensure_ascii=False)
+
+
 class BookstoreHandler(BaseHTTPRequestHandler):
 
-    def send_page(self, content, status=200):
-        body = content.encode("utf-8")
+    def send_response_body(self, content, status=200, content_type="text/html; charset=utf-8"):
         self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'")
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(content.encode("utf-8"))
 
     def do_GET(self):
-        path = urlparse(self.path)
+        path = urlparse(self.path).path
 
-        if path.path.startswith("/static/"):
-            filename = path.path.removeprefix("/static/")
-            if filename not in {"styles.css", "app.js"}:
-                return self.send_page("Not found", 404)
+        if path == "/":
+            try:
+                books = load_books()
+                cards = ""
 
-            file_path = STATIC_DIR / filename
+                for book in books:
+                    cards += f"""
+                    <article class="book-card">
+                        <h3>{html.escape(str(book['title']))}</h3>
+                        <p>Author: {html.escape(str(book['author']))}</p>
+                        <p>Category: {html.escape(str(book['category']))}</p>
+                        <p>Price: PKR {book['price']}</p>
+                        <p>Available: {book['stock']}</p>
+                        <label>Quantity</label>
+                        <input class="quantity" type="number" min="1"
+                               max="{book['stock']}" value="1"
+                               id="qty-{book['id']}">
+                        <button class="add-cart"
+                                data-id="{html.escape(str(book['id']))}">
+                            Add to Cart
+                        </button>
+                    </article>
+                    """
 
-            if not file_path.is_file():
-                return self.send_page("Static file not found", 404)
+                page = f"""<!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <title>Paper Trail Books</title>
+                    <link rel="stylesheet" href="/static/styles.css">
+                    <script src="/static/app.js" defer></script>
+                </head>
+                <body>
+                    <header>
+                        <h1>Paper Trail Books</h1>
+                        <p>Your independent bookstore</p>
+                    </header>
 
-            content_type = mimetypes.guess_type(filename)[0]
-            data = file_path.read_bytes()
+                    <main>
+                        <section>
+                            <h2>Our Book Collection</h2>
+                            <input id="search" type="search"
+                                   placeholder="Search books, authors or categories">
+                            <div class="book-grid">{cards}</div>
+                        </section>
 
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(data)
-            return
+                        <section id="cart-section">
+                            <h2>Shopping Cart</h2>
+                            <div id="cart-items">Your cart is empty.</div>
+                            <p id="cart-total">Total: PKR 0</p>
+                        </section>
 
-        if path.path != "/":
-            return self.send_page("<h1>404 - Page not found</h1>", 404)
+                        <section id="checkout-section">
+                            <h2>Checkout</h2>
+                            <form id="checkout-form">
+                                <label for="customer-name">Full Name</label>
+                                <input id="customer-name" name="name"
+                                       type="text" maxlength="80" required>
 
-        try:
-            books = load_books()
-            search = parse_qs(path.query).get("search", [""])[0].strip()
+                                <label for="customer-email">Email Address</label>
+                                <input id="customer-email" name="email"
+                                       type="email" maxlength="120" required>
 
-            if len(search) > 100:
-                return self.send_page(
-                    "<h1>Search must be under 100 characters.</h1>", 400
+                                <label for="customer-phone">Phone Number</label>
+                                <input id="customer-phone" name="phone"
+                                       type="tel" maxlength="20" required>
+
+                                <button type="submit">Place Order</button>
+                            </form>
+                            <p id="checkout-message" role="status"></p>
+                        </section>
+                    </main>
+
+                    <footer>
+                        <p>Paper Trail Books - Independent Bookstore</p>
+                    </footer>
+                </body>
+                </html>"""
+
+                self.send_response_body(page)
+
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                self.send_response_body(
+                    f"<h1>Inventory Error</h1><p>{html.escape(str(error))}</p>",
+                    500
                 )
 
-            filtered = [
-                book for book in books
-                if search.casefold() in book["title"].casefold()
-                or search.casefold() in book["author"].casefold()
-                or search.casefold() in book["category"].casefold()
-            ]
+        elif path.startswith("/static/"):
+            filename = path.removeprefix("/static/")
+            allowed = {"styles.css", "app.js"}
 
-            cards = ""
+            if filename not in allowed:
+                self.send_response_body("File not found.", 404)
+                return
 
-            for book in filtered:
-                title = html.escape(str(book["title"]))
-                author = html.escape(str(book["author"]))
-                category = html.escape(str(book["category"]))
+            file_path = BASE_DIR / "static" / filename
 
-                cards += f"""
-                <article>
-                    <h2>{title}</h2>
-                    <p>Author: {author}</p>
-                    <p>Category: {category}</p>
-                    <p>Price: Rs. {book['price']}</p>
-                    <p>Stock: {book['stock']}</p>
-                </article>
-                """
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                content_type = "text/css; charset=utf-8" if filename.endswith(".css") else "application/javascript; charset=utf-8"
+                self.send_response_body(content, 200, content_type)
+            except OSError:
+                self.send_response_body("Static file not found.", 404)
 
-            if not cards:
-                cards = "<p>No matching books found.</p>"
+        else:
+            self.send_response_body("Page not found.", 404)
 
-            page = f"""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>Paper Trail Books</title>
-                <link rel="stylesheet" href="/static/styles.css">
-            </head>
-            <body>
-                <header><h1>Paper Trail Books</h1></header>
-                <main>
-                    <h2>Our Book Collection</h2>
-                    <form method="GET">
-                        <input name="search" maxlength="100"
-                               placeholder="Search books or authors"
-                               value="{html.escape(search, quote=True)}">
-                        <button type="submit">Search</button>
-                    </form>
-                    <section>{cards}</section>
-                </main>
-            </body>
-            </html>
-            """
+    def do_POST(self):
+        if urlparse(self.path).path != "/order":
+            self.send_response_body("Endpoint not found.", 404)
+            return
 
-            self.send_page(page)
+        try:
+            length = int(self.headers.get("Content-Length", 0))
 
-        except (OSError, ValueError, KeyError, TypeError):
-            self.send_page(
-                "<h1>Unable to load bookstore inventory.</h1>", 500
+            if length <= 0 or length > 10000:
+                raise ValueError("Invalid request size.")
+
+            form = parse_qs(
+                self.rfile.read(length).decode("utf-8"),
+                keep_blank_values=True
+            )
+
+            def get_field(name):
+                return form.get(name, [""])[0].strip()
+
+            name = get_field("name")
+            email = get_field("email")
+            phone = get_field("phone")
+            items = json.loads(get_field("items"))
+
+            if not name or len(name) > 80:
+                raise ValueError("Enter a valid customer name.")
+
+            if not re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,79}", name):
+                raise ValueError("Name contains invalid characters.")
+
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+                raise ValueError("Enter a valid email address.")
+
+            if not re.fullmatch(r"[0-9+() -]{7,20}", phone):
+                raise ValueError("Enter a valid phone number.")
+
+            if not isinstance(items, list) or not items or len(items) > 20:
+                raise ValueError("Your cart is empty or invalid.")
+
+            books = load_books()
+            order_items = []
+            total = 0
+
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError("Invalid cart item.")
+
+                book_id = item.get("id")
+                quantity = item.get("quantity")
+
+                if type(quantity) is not int or quantity < 1 or quantity > 20:
+                    raise ValueError("Book quantity must be between 1 and 20.")
+
+                book = next((b for b in books if str(b["id"]) == str(book_id)), None)
+
+                if book is None:
+                    raise ValueError("Selected book was not found.")
+
+                if quantity > book["stock"]:
+                    raise ValueError(f"Not enough stock for {book['title']}.")
+
+                subtotal = book["price"] * quantity
+                total += subtotal
+
+                order_items.append({
+                    "id": book["id"],
+                    "title": book["title"],
+                    "quantity": quantity,
+                    "unit_price": book["price"],
+                    "subtotal": subtotal
+                })
+
+            for item in order_items:
+                book = next(b for b in books if b["id"] == item["id"])
+                book["stock"] -= item["quantity"]
+
+            save_books(books)
+
+            order = {
+                "customer": {
+                    "name": name,
+                    "email": email,
+                    "phone": phone
+                },
+                "items": order_items,
+                "total": total,
+                "created_at": datetime.now().isoformat(timespec="seconds")
+            }
+
+            orders_file = BASE_DIR / "data" / "orders.json"
+
+            if orders_file.exists():
+                with open(orders_file, "r", encoding="utf-8") as file:
+                    orders = json.load(file)
+            else:
+                orders = []
+
+            orders.append(order)
+
+            with open(orders_file, "w", encoding="utf-8") as file:
+                json.dump(orders, file, indent=4, ensure_ascii=False)
+
+            self.send_response_body(
+                json.dumps({
+                    "success": True,
+                    "message": "Your order has been placed successfully.",
+                    "total": total
+                }),
+                200,
+                "application/json"
+            )
+
+        except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as error:
+            self.send_response_body(
+                json.dumps({"success": False, "message": str(error)}),
+                400,
+                "application/json"
             )
 
     def log_message(self, format, *args):
-        pass
+        print("%s - %s" % (self.address_string(), format % args))
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", 8000), BookstoreHandler)
-    print("Paper Trail Books running at http://127.0.0.1:8000")
-    server.serve_forever()
+    server = HTTPServer((HOST, PORT), BookstoreHandler)
+    print(f"Paper Trail Books running at http://{HOST}:{PORT}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nServer stopped.")
+        server.server_close()
