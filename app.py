@@ -33,10 +33,17 @@ def load_books():
             if field not in book:
                 raise ValueError(f"Book record is missing: {field}")
 
-        if not isinstance(book["price"], (int, float)) or book["price"] <= 0:
+        if (
+            isinstance(book["price"], bool)
+            or not isinstance(book["price"], (int, float))
+            or book["price"] <= 0
+        ):
             raise ValueError("Book price must be greater than zero.")
 
-        if not isinstance(book["stock"], int) or book["stock"] < 0:
+        if (
+            type(book["stock"]) is not int
+            or book["stock"] < 0
+        ):
             raise ValueError("Book stock cannot be negative.")
 
     return books
@@ -49,11 +56,19 @@ def save_books(books):
 
 class BookstoreHandler(BaseHTTPRequestHandler):
 
-    def send_response_body(self, content, status=200, content_type="text/html; charset=utf-8"):
+    def send_response_body(
+        self,
+        content,
+        status=200,
+        content_type="text/html; charset=utf-8"
+    ):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; style-src 'self'; script-src 'self'"
+        )
         self.end_headers()
         self.wfile.write(content.encode("utf-8"))
 
@@ -76,7 +91,7 @@ class BookstoreHandler(BaseHTTPRequestHandler):
                         <label>Quantity</label>
                         <input class="quantity" type="number" min="1"
                                max="{book['stock']}" value="1"
-                               id="qty-{book['id']}">
+                               id="qty-{html.escape(str(book['id']))}">
                         <button class="add-cart"
                                 data-id="{html.escape(str(book['id']))}">
                             Add to Cart
@@ -160,8 +175,13 @@ class BookstoreHandler(BaseHTTPRequestHandler):
 
             try:
                 content = file_path.read_text(encoding="utf-8")
-                content_type = "text/css; charset=utf-8" if filename.endswith(".css") else "application/javascript; charset=utf-8"
+                content_type = (
+                    "text/css; charset=utf-8"
+                    if filename.endswith(".css")
+                    else "application/javascript; charset=utf-8"
+                )
                 self.send_response_body(content, 200, content_type)
+
             except OSError:
                 self.send_response_body("Static file not found.", 404)
 
@@ -208,8 +228,9 @@ class BookstoreHandler(BaseHTTPRequestHandler):
                 raise ValueError("Your cart is empty or invalid.")
 
             books = load_books()
-            order_items = []
-            total = 0
+
+            # Combine repeated entries for the same book.
+            requested_quantities = {}
 
             for item in items:
                 if not isinstance(item, dict):
@@ -221,13 +242,37 @@ class BookstoreHandler(BaseHTTPRequestHandler):
                 if type(quantity) is not int or quantity < 1 or quantity > 20:
                     raise ValueError("Book quantity must be between 1 and 20.")
 
-                book = next((b for b in books if str(b["id"]) == str(book_id)), None)
+                book = next(
+                    (b for b in books if str(b["id"]) == str(book_id)),
+                    None
+                )
 
                 if book is None:
                     raise ValueError("Selected book was not found.")
 
+                normalized_id = str(book["id"])
+                requested_quantities[normalized_id] = (
+                    requested_quantities.get(normalized_id, 0) + quantity
+                )
+
+                if requested_quantities[normalized_id] > 20:
+                    raise ValueError(
+                        "Total quantity for one book cannot exceed 20."
+                    )
+
+            order_items = []
+            total = 0
+
+            # Validate combined quantities against actual stock.
+            for book_id, quantity in requested_quantities.items():
+                book = next(
+                    b for b in books if str(b["id"]) == book_id
+                )
+
                 if quantity > book["stock"]:
-                    raise ValueError(f"Not enough stock for {book['title']}.")
+                    raise ValueError(
+                        f"Not enough stock for {book['title']}."
+                    )
 
                 subtotal = book["price"] * quantity
                 total += subtotal
@@ -240,11 +285,14 @@ class BookstoreHandler(BaseHTTPRequestHandler):
                     "subtotal": subtotal
                 })
 
-            for item in order_items:
-                book = next(b for b in books if b["id"] == item["id"])
-                book["stock"] -= item["quantity"]
+            # Prepare the updated inventory.
+            updated_books = [dict(book) for book in books]
 
-            save_books(books)
+            for item in order_items:
+                book = next(
+                    b for b in updated_books if b["id"] == item["id"]
+                )
+                book["stock"] -= item["quantity"]
 
             order = {
                 "customer": {
@@ -265,10 +313,16 @@ class BookstoreHandler(BaseHTTPRequestHandler):
             else:
                 orders = []
 
+            if not isinstance(orders, list):
+                raise ValueError("Order storage must contain a list.")
+
             orders.append(order)
 
+            # Save inventory and order records.
             with open(orders_file, "w", encoding="utf-8") as file:
                 json.dump(orders, file, indent=4, ensure_ascii=False)
+
+            save_books(updated_books)
 
             self.send_response_body(
                 json.dumps({
@@ -280,9 +334,18 @@ class BookstoreHandler(BaseHTTPRequestHandler):
                 "application/json"
             )
 
-        except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as error:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            json.JSONDecodeError
+        ) as error:
             self.send_response_body(
-                json.dumps({"success": False, "message": str(error)}),
+                json.dumps({
+                    "success": False,
+                    "message": str(error)
+                }),
                 400,
                 "application/json"
             )
@@ -294,6 +357,7 @@ class BookstoreHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     server = HTTPServer((HOST, PORT), BookstoreHandler)
     print(f"Paper Trail Books running at http://{HOST}:{PORT}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
