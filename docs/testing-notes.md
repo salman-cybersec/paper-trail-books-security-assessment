@@ -16,16 +16,26 @@ The following controls were identified:
 - Allowlisted static file access.
 - Duplicate book entries are combined before stock validation.
 
-### Test Execution Status
+### Runtime Test Execution
 
-The above controls have been reviewed in source code. Runtime testing of these cases is still pending.
+The following runtime tests were performed:
 
-Planned test cases:
+| Test Case | Result |
+|---|---|
+| Empty cart submission | Pass |
+| Invalid customer email | Pass |
+| Invalid phone number | Pass |
+| Zero quantity | Pass |
+| Quantity exceeding available stock | Pass |
+| Valid order submission | Pass |
+| Long search input | Pass – Application did not crash |
 
-1. Empty cart submission.
-2. Invalid customer email.
-3. Invalid phone number.
-4. Zero or negative quantity.
-5. Quantity exceeding available stock.
-6. Repeated book IDs exceeding available stock.
-7. Valid order submission.
+### Testing Notes
+
+The application handled the tested invalid inputs without crashing. Search functionality recovered after unusual input, and a valid order was successfully submitted.
+
+Repeated book IDs exceeding available stock were reviewed in source code but were not separately verified through runtime testing.
+
+### Limitations
+
+Authentication, file uploads, and payment integration are not implemented in the current application and were not tested.
