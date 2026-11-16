@@ -1,28 +1,31 @@
-# Testing Notes
+## Task 2 – Application Security Review
 
-## Practice Target
-PortSwigger Web Security Academy
+### Static Code Review
 
-## Lab
-SQL injection vulnerability in WHERE clause allowing retrieval of hidden data
+The application source code was reviewed to identify user inputs, backend routes, validation controls, and data storage.
 
-## Lab Instance
-https://0a8d00fc043c54888014801f00b200d5.web-security-academy.net/
+The following controls were identified:
 
-## Vulnerability
-SQL Injection
+- Customer name, email, and phone validation.
+- Empty and invalid cart rejection.
+- Book ID validation.
+- Quantity and stock validation.
+- Server-side order total calculation.
+- Request body size limit.
+- HTML escaping for book information.
+- Allowlisted static file access.
+- Duplicate book entries are combined before stock validation.
 
-## Tested Parameter
-category
+### Test Execution Status
 
-## Test Result
-Lab successfully solved.
+The above controls have been reviewed in source code. Runtime testing of these cases is still pending.
 
-## Impact
-The vulnerability allowed retrieval of hidden products that were not normally displayed.
+Planned test cases:
 
-## Testing Status
-Completed successfully.
-
-## Evidence
-The successful lab completion should be verified and documented with a screenshot.
+1. Empty cart submission.
+2. Invalid customer email.
+3. Invalid phone number.
+4. Zero or negative quantity.
+5. Quantity exceeding available stock.
+6. Repeated book IDs exceeding available stock.
+7. Valid order submission.
